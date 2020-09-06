@@ -1,63 +1,83 @@
 #!/usr/bin/env python3
 
-import matplotlib as mpl
-mpl.use('Agg')
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import numpy as np
 import os
-import re
 import datetime
+import metadata
 
-plt.style.use('seaborn-whitegrid')
-fig = plt.figure()
-ax = plt.axes()
-for axis in [ax.xaxis, ax.yaxis]:
-    axis.set_major_locator(ticker.MaxNLocator(integer=True))
-ax.set_ylabel('Chord Changes per Minute')
-ax.set_xlabel('Days Practicing')
-ax.set_title('Chord Change Progress')
-min_date = datetime.datetime.strptime('2020.08.24', '%Y.%m.%d')
+def get_chord_string(filename):
+    c1, c2 = filename.strip(".txt").split("_")
+    base_chars = "abcdefg"
+    upper_map = str.maketrans(base_chars, base_chars.upper())
+    c1 = c1.translate(upper_map)
+    c2 = c2.translate(upper_map)
+    return c1 + " - " + c2
 
-# Get all chord change files in the current directory
-def get_files():
-    # Get current directory
-    dir_path = os.path.dirname(os.path.realpath(__file__))
+def get_plot():
+    # Look pretty
+    plt.style.use('seaborn-whitegrid')
+    ax = plt.axes()
+    # Use whole numbers on the axes
+    for axis in [ax.xaxis, ax.yaxis]:
+        axis.set_major_locator(ticker.MaxNLocator(integer=True))
+    # Labels and title
+    ax.set_ylabel('Chord Changes per Minute')
+    ax.set_xlabel('Days Practicing')
+    ax.set_title('Chord Change Progress')
+    return ax
 
-    # Regex to match data files
-    regex = re.compile('[a-g]_[a-g]_chord_change\.txt')
+def plot_data(data, files, start_date):
+    ax = get_plot()
 
-    # Get all data files from current directory
-    return [file for file in os.listdir(dir_path) if re.match(regex, file)]
-
-# Parse data from a single file
-def get_data(file_name):
-    # Store dates and respective chord change counts separate
-    dates = []
-    chord_changes = []
-
-    # Store all non-empty lines
-    lines = open(file_name, 'r').read().splitlines()
-
-    # Parse lines for date and chord change count
-    for line in lines:
-        l = line.split(' ')
-        dates.append(datetime.datetime.strptime(l[0], '%Y.%m.%d'))
-        chord_changes.append(int(l[1]))
-
-    chord_names = file_name.split('_')
-    chord_change_string = '' + chord_names[0] + ' - ' + chord_names[1]
-
-    return (dates, chord_changes, chord_change_string)
-
-def plot_data(dates, chord_changes, chord_change_string):
-    num_days = [(date - min_date).days + 1 for date in dates]
-    ax.plot(num_days, chord_changes, marker='o', label=chord_change_string)
+    num_lines = len(files)
+    for i in range(num_lines):
+        label = get_chord_string(files[i])
+        dates = [x["date_offset"] + 1 for x in data[i]]
+        counts = [x["count"] for x in data[i]]
+        ax.plot(dates, counts, marker='o', label=label)
     ax.legend()
 
-file_names = get_files()
-for file in file_names:
-    d, cc, cc_string = get_data(file)
-    plot_data(d, cc, cc_string)
-plt.savefig('guitar_progress.png', bbox_inches='tight')
-# plt.show()
+
+def get_data(files, start_date):
+    num_files = len(files)
+    # [[{date, count}, ...], ...]
+    # Chord names related to data by matching index from `data` to `files`
+    data = [[] for i in range(num_files)]
+    for f in range(num_files):
+        lines = open(os.path.join(metadata.data_path, files[f]), 'r').read().splitlines()
+        num_lines = len(lines)
+        data[f] = [{"date_offset": 0, "count": 0} for i in range(num_lines)]
+        for l in range(num_lines):
+            date_str, count_str = lines[l].split()
+            data[f][l]["date_offset"] = (datetime.datetime.strptime(date_str, '%Y.%m.%d') - start_date).days
+            data[f][l]["count"] = int(count_str)
+    return data
+
+def get_start_date():
+    # TODO: Test failure
+    return datetime.datetime.strptime(metadata.start_date, '%Y.%m.%d')
+
+def data_path_is_valid():
+    return os.path.exists(metadata.data_path) and os.path.isdir(metadata.data_path)
+
+def main():
+    # Validate path to chord change data
+    if not data_path_is_valid():
+        print("data_path in metadata.py is invalid.\nPlease fix metadata.py and try again.")
+        return
+    # Get file names from chord change data path
+    files = os.listdir(metadata.data_path)
+    # Parse the start date into datetime object
+    start_date = get_start_date()
+    # Parse and format data from all data files
+    data = get_data(files, start_date)
+    # Plot it!
+    plot_data(data, files, start_date)
+    plt.savefig('guitar_progress.png', bbox_inches='tight')
+    #plt.show()
+
+if __name__ == "__main__":
+    main()
